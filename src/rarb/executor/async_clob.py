@@ -134,6 +134,14 @@ class AsyncClobClient:
             http2=False,  # HTTP/1.1 works better through SOCKS5 proxy
             limits=limits,
         )
+
+        # Create a separate non-proxy client for read operations (keep-alive, positions, etc.)
+        self._read_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            http2=False,
+            limits=limits,
+        )
+
         self._warmed_up = False
 
         # Cache for tick sizes, neg_risk status, and fee rates
@@ -202,8 +210,8 @@ class AsyncClobClient:
                     # Lightweight parallel pings to keep both connections warm
                     t0 = time.time()
                     await asyncio.gather(
-                        self._client.get(f"{self.host}/tick-sizes"),
-                        self._client.get(f"{self.host}/tick-sizes"),
+                        self._read_client.get(f"{self.host}/tick-sizes"),
+                        self._read_client.get(f"{self.host}/tick-sizes"),
                     )
                     elapsed = int((time.time() - t0) * 1000)
                     self._last_request_time = time.time()
@@ -229,6 +237,7 @@ class AsyncClobClient:
         """Close the HTTP client and stop background tasks."""
         self.stop_keepalive()
         await self._client.aclose()
+        await self._read_client.aclose()
 
     async def get_neg_risk(self, token_id: str) -> bool:
         """
@@ -240,7 +249,7 @@ class AsyncClobClient:
             return self._neg_risk[token_id]
 
         try:
-            response = await self._client.get(
+            response = await self._read_client.get(
                 f"{self.host}/neg-risk",
                 params={"token_id": token_id},
             )
@@ -322,7 +331,7 @@ class AsyncClobClient:
             return self._fee_rates[token_id]
 
         try:
-            resp = await self._client.get(
+            resp = await self._read_client.get(
                 f"{self.host}/fee-rate",
                 params={"token_id": token_id},
             )
@@ -768,7 +777,7 @@ class AsyncClobClient:
         path = f"/positions?user={self.address}"
 
         try:
-            response = await self._client.get(f"{data_api_url}{path}")
+            response = await self._read_client.get(f"{data_api_url}{path}")
 
             if response.status_code != 200:
                 log.error("Failed to get positions", status=response.status_code, body=response.text[:200])

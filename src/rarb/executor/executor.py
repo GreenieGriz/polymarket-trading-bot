@@ -31,33 +31,17 @@ log = get_logger(__name__)
 
 
 def _configure_proxy_for_clob() -> bool:
-    """Configure SOCKS5 proxy for CLOB API calls via environment variables.
-
-    This must be called BEFORE importing py_clob_client so that httpx
-    picks up the proxy settings.
-
-    We exclude WebSocket endpoints from the proxy since:
-    - WebSocket (price feeds) should be direct for low latency
-    - Only order placement (CLOB REST API) needs the proxy for geo-bypass
-
-    Returns True if proxy was configured.
+    """Check if proxy is configured (but don't set it globally).
+    
+    The proxy is now applied selectively only to AsyncClobClient,
+    not globally via environment variables. This prevents all HTTP
+    traffic from routing through the proxy.
+    
+    Returns True if proxy is configured.
     """
     settings = get_settings()
-    if not settings.is_proxy_enabled():
-        return False
-
-    proxy_url = settings.get_socks5_proxy_url()
-    if proxy_url:
-        # Set proxy for HTTP/HTTPS requests
-        os.environ["HTTP_PROXY"] = proxy_url
-        os.environ["HTTPS_PROXY"] = proxy_url
-
-        # Exclude WebSocket endpoints from proxy (they should be direct)
-        # This allows price feeds to connect directly while order placement uses proxy
-        no_proxy = "ws-subscriptions-clob.polymarket.com,gamma-api.polymarket.com"
-        os.environ["NO_PROXY"] = no_proxy
-
-        log.info("Configured SOCKS5 proxy for CLOB API",
+    if settings.is_proxy_enabled():
+        log.info("SOCKS5 proxy configured for order submission only",
                  proxy_host=settings.socks5_proxy_host,
                  proxy_port=settings.socks5_proxy_port)
         return True
